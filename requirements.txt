@@ -1,0 +1,16 @@
+# Python 3.13.9, CUDA 12.8 (tested on Windows 11, RTX 5090 Laptop GPU)
+numpy==2.4.1
+scipy==1.16.3
+pandas==2.3.3
+torch==2.12.0.dev20260326+cu128   # any torch>=2.4 with torch.func should work
+scikit-learn==1.8.0
+xgboost==3.2.0
+lightgbm==4.6.0
+catboost==1.2.10
+optuna==4.9.0
+pandapower==3.3.1
+PYPOWER==5.1.19
+matplotlib==3.10.8
+PyYAML==6.0.3
+pyarrow==24.0.0
+tabulate

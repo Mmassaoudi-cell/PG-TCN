@@ -1,0 +1,204 @@
+# FROZEN (revision 3) before any test evaluation of this configuration. sha256[:16]=25ef5d2353b236b8
+frozen_at: '2026-10-06T13:11:09'
+model:
+  name: bus_graph_tcn
+  display_name: PG-TCN (multi-horizon posterior-drift graph TCN + calibrated-LLR CUSUM)
+  architecture:
+    token_features: 44
+    temporal_blocks: 4
+    kernel: 3
+    dilations:
+    - 1
+    - 2
+    - 4
+    - 8
+    graph_propagation: h + GELU(A_hat h W) after every temporal block
+    pooling: attention + max over buses
+    heads:
+    - 5-class softmax
+    - bus-level sigmoid (localisation)
+    receptive_field_scans: 31
+    drift_horizons_scans:
+    - 60
+    - 120
+  hyperparameters:
+    lr: 0.0035998822266397157
+    hid: 64
+    drop: 0.003914683519333911
+    wd: 1.0412648986213771e-05
+    cw_pow: 0.5
+    loc_w: 0.5
+    bs: 64
+    amp: true
+    horizons:
+    - 60
+    - 120
+  selection_metric: validation step-level 5-class macro-F1
+data:
+  systems:
+  - ieee14
+  - ieee30
+  - ieee57
+  - ieee118
+  split: 'temporal: train anchors 2012, val Jan-May 2013, test Jun-Dec 2013'
+  features:
+  - standardised whitened CKF innovation (M)
+  - posterior measurement velocity (M)
+  - wind correlation-consistency residual (n_w)
+  - standardised log eta (1)
+  preprocessing: channel standardisation, wind-residual regression and eta scaling
+    fitted on TRAIN normal episodes
+  class_balancing: class-weighted cross-entropy, weights (N/(K N_c))^cw_pow
+  augmentation: none
+  benign_library:
+    wind:
+    - common-mode ramp (70%)
+    - single-farm trip (30%)
+    load:
+    - active step (50%)
+    - reactive step (25%)
+    - slow ramp (25%)
+    normal: 20% with single-meter drift
+training:
+  optimizer: AdamW
+  scheduler: OneCycleLR (pct_start 0.1)
+  loss: weighted CE + loc_w * BCE (bus head)
+  max_epochs: 30
+  patience: 6
+  early_stopping: validation macro-F1
+  grad_clip: 1.0
+  mixed_precision: bf16 autocast
+decision:
+  statistic: calibrated LLR a*logit(p3+p4)+c (Platt on validation steps, minus validation
+    prior log-odds), clipped to [-10,10]
+  rule: S_k=max(0,S_{k-1}+llr_k-k0); alarm when S_k>=h
+  calibration: '(k0,h) on validation only: k0 in {0,0.25,0.5,1,1.5,2,3}; h>= smallest
+    with episode FAR<=1% and <=1 alarm/day on validation-period hour-long streams;
+    maximise validation detection'
+  far_target: 0.01
+  stream_alarms_per_day: 1.0
+evaluation:
+  seeds:
+  - 0
+  - 1
+  - 2
+  - 3
+  - 4
+  - 5
+  - 6
+  - 7
+  - 8
+  - 9
+  benchmark_seeds:
+  - 0
+  - 1
+  - 2
+  - 3
+  - 4
+  ood_sets:
+  - ood_mimic
+  - ood_wocwg
+  - ood_noise1.5
+  - ood_load0.7
+  - ood_load1.3
+  primary_metric: test step-level 5-class macro-F1 (scans 52..199)
+benchmarks:
+  deep:
+  - flat_tcn
+  - gcn_gru
+  - stdcnn
+  - transformer
+  - gru
+  - lstm
+  - cnn1d
+  - mlp
+  - mamba
+  deep_hp: read from results/tuning/ieee14/nn_<model>.json (validation-only Optuna,
+    6 trials; flat_tcn 12)
+  tabular:
+  - lr
+  - svm
+  - knn
+  - rf
+  - et
+  - xgb
+  - lgbm
+  - cat
+  - hgb
+  classical:
+  - source_dqn
+  - eta_shewhart
+  - eta_cusum
+  - chi2_cusum
+ablations:
+  no_graph:
+    hp:
+      use_graph: false
+  no_velocity:
+    ablate: no_vel
+  no_wind_residual:
+    ablate: no_wres
+  no_eta:
+    ablate: no_eta
+  no_innovation:
+    ablate: no_innov
+  no_localisation_loss:
+    hp:
+      loc_w: 0.0
+  velocity_and_residual_removed:
+    ablate: no_vel+no_wres
+low_data:
+  systems:
+  - ieee14
+  - ieee118
+  fractions:
+  - 0.01
+  - 0.05
+  - 0.1
+  - 0.25
+  - 0.5
+  seeds:
+  - 0
+  - 1
+  - 2
+  baselines_nn:
+  - flat_tcn
+  - gcn_gru
+  baselines_tab:
+  - lgbm
+revision:
+  version: 3
+  previous_hash: 4964d804d02010a5
+  selection: 'validation only (IEEE-14 seeds 0-1, IEEE-57 seed 0): drift horizons
+    {none, [30,90], [60,120]}; split-half validation comparison of raw vs calibrated-LLR
+    CUSUM'
+  screen_val_macro_f1:
+    ieee14:
+      none:
+      - 0.907
+      - 0.9094
+      '[30,90]':
+      - 0.97
+      - 0.9693
+      '[60,120]':
+      - 0.9723
+      - 0.9765
+    ieee57:
+      none:
+      - 0.8782
+      '[30,90]':
+      - 0.9825
+      '[60,120]':
+      - 0.9837
+  v3_changes: benign-event library in all training/validation/test data (wind ramps
+    + single-farm trips; load steps + reactive steps + slow load ramps; 20% of normal
+    episodes with meter drift); two-parameter calibrated-LLR CUSUM (k,h) selected
+    on validation episodes (FAR<=1%) and validation-period hour-long streams (<=1
+    alarm/day)
+  v3_pilot_validation:
+    system: ieee14
+    seed: 0
+    val_macro_f1: 0.9565
+    val_det: 0.9688
+    val_far: 0.0007
+    val_stream_alarms_per_day: 0.81
